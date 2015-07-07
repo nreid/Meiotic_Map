@@ -1,4 +1,5 @@
 #######
+  library(magrittr)
   setwd('/Users/jeffreymiller/Desktop/Map_Assembly')
   data1 <- read.table('try.recode.vcf', stringsAsFactors=FALSE, header= FALSE) ## read.table is designed for csvs, I removed the # from the header of the VCF
   rownames(data1) <- paste(data1[,1],data1[,2], sep = "_") ## Names each row by scaffold and position
@@ -315,6 +316,78 @@ translate.onemap <-function(data, data_parents){
   return(data)
 }
 
+#feed in an offspring table with rownames "Scaffold_position"
+remove_close_loci<-function(data,cross,min_dist){
+	
+	posvec_all<-rownames(data) %>% strsplit(x=.,split="_") %>% do.call(rbind,.) %>% as.data.frame(.,stringsAsFactors=FALSE)
+	posvec_all[,2]<-as.numeric(posvec_all[,2])
+	
+	
+	posvec<-posvec_all
+	outvec<-which(cross=="D1.10")[1]
+	
+	for(i in 	){
+		outind<-length(outvec)
+		cond<-posvec[outvec[outind],1]==posvec[i,1]
+		cond<-cond&((posvec[i,2]-posvec[outvec[outind],2])<=min_dist)
+		cond<-cond&cross[outvec[outind]]==cross[i]
+		#cat((posvec[i,2]-posvec[outvec[outind],2]), " ", cond, "\n")
+		if(cond){
+			
+			l1<-sum(data[outvec[outind],],na.rm=TRUE)
+			l2<-sum(data[i,],na.rm=TRUE)			
+			if(l2>l1){
+				outvec[outind]<-i
+				}
+			
+			}else{outvec<-c(outvec,i)}
+		
+		}
+
+	
+	for(i in which(cross=="D2.15")){
+		outind<-length(outvec)
+		cond<-posvec[outvec[outind],1]==posvec[i,1]
+		cond<-cond&((posvec[i,2]-posvec[outvec[outind],2])<=min_dist)
+		cond<-cond&cross[outvec[outind]]==cross[i]
+		#cat((posvec[i,2]-posvec[outvec[outind],2]), " ", cond, "\n")
+		if(cond){
+			
+			l1<-sum(data[outvec[outind],],na.rm=TRUE)
+			l2<-sum(data[i,],na.rm=TRUE)			
+			if(l2>l1){
+				outvec[outind]<-i
+				}
+			
+			}else{outvec<-c(outvec,i)}
+		
+		}
+
+	
+	for(i in which(cross=="B3.7")){
+		outind<-length(outvec)
+		cond<-posvec[outvec[outind],1]==posvec[i,1]
+		cond<-cond&((posvec[i,2]-posvec[outvec[outind],2])<=min_dist)
+		cond<-cond&cross[outvec[outind]]==cross[i]
+		#cat((posvec[i,2]-posvec[outvec[outind],2]), " ", cond, "\n")
+		if(cond){
+			
+			l1<-sum(data[outvec[outind],],na.rm=TRUE)
+			l2<-sum(data[i,],na.rm=TRUE)			
+			if(l2>l1){
+				outvec[outind]<-i
+				}
+			
+			}else{outvec<-c(outvec,i)}
+		
+		}
+
+	outvec<-outvec[order(outvec)]
+	return(outvec)
+	
+	}
+
+
 ##########################
 
 parents <- cbind(Male.ref,Male.alt,Female.ref,Female.alt)
@@ -364,9 +437,20 @@ final.offspring <- offspring.genos[suc.index, ]
 
 final.parent <- parent.genos[suc.index]
 
+onemapcross<-translate.onemap(final.offspring,final.parent)[,2]
+
+closeind<-remove_close_loci(final.offspring,onemapcross,1000)
+
+final.offspring<-final.offspring[closeind,]
+
+final.parent<-final.parent[closeind]
+
+vcf<-data1.sub.bi[rownames(data1.sub.bi)%in%rownames(final.offspring),]
+
 write.csv(final.offspring, file = 'final.offspring.txt') ## Temporary file
 
 write.csv(final.parent, file = 'final.parent.txt') ## Temporary file
+
 
 ########Translate###############################
 
@@ -377,6 +461,31 @@ onemap.out <- translate.onemap(final.offspring,final.parent)
 write.csv(joinmap.out, file = 'joinmap.out.csv', quote=FALSE, row.names = FALSE)
 
 write.csv(onemap.out, file = 'onemap.out.csv', quote=FALSE, row.names = FALSE)
+
+
+#######bring back LGs from process_onemap2##############
+
+read.table("final.linkage.groups.txt",stringsAsFactors=FALSE)->final.lgs
+cbind(final.lgs,gsub("SCFLD","Scaffold",final.lgs[,2]))->final.lgs
+colnames(final.lgs)<-letters[1:4]
+cbind(final.lgs,paste(final.lgs$d,final.lgs$c,sep="_"))->final.lgs
+colnames(final.lgs)<-letters[1:5]
+sum(final.lgs[,5]%in%rownames(final.offspring))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ########Incorporate scaffold information#######
 
