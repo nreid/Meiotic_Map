@@ -1,39 +1,66 @@
 #######
+##  A series of lines to read in and manipulate our VCF file
+#######
   library(magrittr)
-  setwd('/Users/jeffreymiller/Desktop/Map_Assembly')
-  data1 <- read.table('try.recode.vcf', stringsAsFactors=FALSE, header= FALSE) ## read.table is designed for csvs, I removed the # from the header of the VCF
-  rownames(data1) <- paste(data1[,1],data1[,2], sep = "_") ## Names each row by scaffold and position
-  data1.bi <- grepl(',', data1[,5]) ## To take out all of the triallelic SNPs, just grep out anyhting with a ',' in the alternative allele field 
-  data1.sub.bi <- data1[!data1.bi,] ## take the inverse (true/false) of alleles that have more than one alt allele 
-  data1.sub.bi <-data1.sub.bi[data1.sub.bi[,6]>30,] #remove variants with VQ<=30
-  allelecounts.10<-c() ## set up an empty vector for splitting each individual offspring entry
+  library(stringr)
+  ## get vector of sample names
+  f <- pipe("zcat /home/jmiller1/16.4.18.MAP/vcf/scafvcfs/filtered.vcf.gz | head -n 500 | grep CHROM")
+  snames <- scan(f,what="character")
+  ## read in VCF file. 
+  data1 <- read.table('/home/jmiller1/16.4.18.MAP/vcf/scafvcfs/filtered.vcf.gz', stringsAsFactors=FALSE, header= FALSE) 
+  ##assign rownames as Scaffold_position
+  rownames(data1) <- paste(data1[,1],data1[,2], sep = "_") 
+  ## logical vector giving records with more than one alternate allele
+  data1.bi <- grepl(',', data1[,5]) 
+  ## remove records with more than one alternate allele
+  data1.sub.bi <- data1[!data1.bi,] 
+  #remove variants with VQ<=30
+  data1.sub.bi <-data1.sub.bi[data1.sub.bi[,6]>30,] 
+  ## set up an empty vector for splitting each individual offspring entry
+  colnames(data1.sub.bi) <- snames
+  allelecounts.10<-c() 
+  ## loop through each column in vcf table. pull out fields RO and AO (check VCF for which those are), colon-delimited
   for(i in 10:105){
-    allelecounts.10<-cbind(allelecounts.10,do.call(rbind,strsplit((data1.sub.bi[,i]),":"))[,c(3,5)])
-  } ## Takes the 3rd and 5th entry from the list string split 
+  #for(i in 10:15){
+    allelecounts.10<-cbind(allelecounts.10,do.call(rbind,strsplit((data1.sub.bi[,i]),":"))[,c(4,6)])
+  } 
+  ## assign row names
   row.names(allelecounts.10) <- row.names(data1.sub.bi)
-  class(allelecounts.10)<- "numeric" ## changes the character class of a stringsplit into numeric. Missing data '.' induces NAs
-  allelecounts.10[is.na(allelecounts.10)]<-0 ## changes all the 'NAs' to 0
-  a1 = seq(1, 192, by=2) ## Makes a sequence of odd/even numbers to indicate the altern/ ref columns
-  a2 = seq(2, 192, by=2) ## Makes a sequence of odd/even numbers to indicate the altern/ ref columns
+  ## make table numeric
+  class(allelecounts.10)<- "numeric" 
+  ## NAs become 0
+  allelecounts.10[is.na(allelecounts.10)]<-0
+  a1 <- seq(1, 192, by=2) ## Makes a sequence of odd/even numbers to indicate the altern/ ref columns
+  names(a1) <- snames[-c(1:9)]
+  a2 <- seq(2, 192, by=2) ## Makes a sequence of odd/even numbers to indicate the altern/ ref columns
+  names(a2) <- snames[-c(1:9)]
+
   ## this is not working names(allelecounts.10[,a1]) <- names(data1.sub.bi[10:ncol(data1.sub.bi)])
   ## this is not working names(allelecounts.10[,a2]) ->names(data1.sub.bi[10:ncol(data1.sub.bi)])
   ### Sum the reads for parents and set as 'parents' object ###
-  Female.ref <- allelecounts.10[,a1[1]]+allelecounts.10[,a1[2]]+allelecounts.10[,a1[3]]
-  Female.alt <- allelecounts.10[,a2[1]]+allelecounts.10[,a2[2]]+allelecounts.10[,a2[3]]
-  Male.ref <- allelecounts.10[,a1[4]]+allelecounts.10[,a1[5]]+allelecounts.10[,a1[6]]
-  Male.alt <- allelecounts.10[,a2[4]]+allelecounts.10[,a2[5]]+allelecounts.10[,a2[6]]
+  #allelecounts.10[,a1[1]]+allelecounts.10[,a1[2]]+allelecounts.10[,a1[3]]
+  Female.ref <- rowSums(allelecounts.10[,a1][,grep("Female",snames)-9]) 
+  Female.alt <- rowSums(allelecounts.10[,a2][,grep("Female",snames)-9]) 
+  Male.ref <- rowSums(allelecounts.10[,a1][,grep("Male",snames)-9]) 
+  Male.alt <- rowSums(allelecounts.10[,a2][,grep("Male",snames)-9]) 
 #########################################################################################
+
+######
+##  A series of functions for filtering and correcting loci and genotypes. 
+######
 
 filter_bylograt <- function(data,upbo=2.6,lowbo=-2.3){
   a1.O = seq(1, ncol(data), by=2) ## Makes a sequence of odd/even numbers to indicate the altern/ ref columns for offspring columns (index)
   a2.O = seq(2, ncol(data), by=2) ## Makes a sequence of odd/even numbers to indicate the altern/ ref columns for offspring columns (index)
-  hist(log(rowSums(data[,a1.O])/rowSums(data[,a2.O]),base=2),breaks=100) # should indicate 3 peaks for the log ratio of each site (1/3,1/1,3/1) which is (.33,1,3)  The log base2 of these (-1.5,0,1.5)
+  dev.new()
+  hist(log(rowSums(data[,a1.O])/rowSums(data[,a2.O]),base=2),breaks=100,main="log ratio of allele counts before filtering") # should indicate 3 peaks for the log ratio of each site (1/3,1/1,3/1) which is (.33,1,3)  The log base2 of these (-1.5,0,1.5)
   abline(v=c(upbo,lowbo), col='red') ## Cutoffs
   
   #### Filter by log ratio at the locus ###
   #logfreq<-log(rowSums(data[,a1.O])/rowSums(data[,a2.O]),base=2) # object of log ratios of each site
   keepal<-(log(rowSums(data[,a1.O])/rowSums(data[,a2.O]),base=2)<upbo&log(rowSums(data[,a1.O])/rowSums(data[,a2.O]),base=2)>lowbo) ## index of those that meet the coverage criteria
-  hist(log(rowSums(data[keepal,a1.O])/rowSums(data[keepal,a2.O]),base=2),breaks=100)
+  dev.new()
+  hist(log(rowSums(data[keepal,a1.O])/rowSums(data[keepal,a2.O]),base=2),breaks=100,main="log ratio of allele counts after filtering")
   abline(v=c(-1.5,0,1.5),col="red")
   data<-data[keepal,]
   return(data)
@@ -318,85 +345,89 @@ translate.onemap <-function(data, data_parents){
 
 #feed in an offspring table with rownames "Scaffold_position"
 remove_close_loci<-function(data,cross,min_dist){
-	
-	posvec_all<-rownames(data) %>% strsplit(x=.,split="_") %>% do.call(rbind,.) %>% as.data.frame(.,stringsAsFactors=FALSE)
-	posvec_all[,2]<-as.numeric(posvec_all[,2])
-	
-	
-	posvec<-posvec_all
-	outvec<-which(cross=="D1.10")[1]
-	
-	for(i in 	){
-		outind<-length(outvec)
-		cond<-posvec[outvec[outind],1]==posvec[i,1]
-		cond<-cond&((posvec[i,2]-posvec[outvec[outind],2])<=min_dist)
-		cond<-cond&cross[outvec[outind]]==cross[i]
-		#cat((posvec[i,2]-posvec[outvec[outind],2]), " ", cond, "\n")
-		if(cond){
-			
-			l1<-sum(data[outvec[outind],],na.rm=TRUE)
-			l2<-sum(data[i,],na.rm=TRUE)			
-			if(l2>l1){
-				outvec[outind]<-i
-				}
-			
-			}else{outvec<-c(outvec,i)}
-		
-		}
+  
+  posvec_all<-rownames(data) %>% strsplit(x=.,split="_") %>% do.call(rbind,.) %>% as.data.frame(.,stringsAsFactors=FALSE)
+  posvec_all[,2]<-as.numeric(posvec_all[,2])
+  
+  
+  posvec<-posvec_all
+  outvec<-which(cross=="D1.10")[1]
+  
+  for(i in  which(cross=="D1.10")){
+    outind<-length(outvec)
+    cond<-posvec[outvec[outind],1]==posvec[i,1]
+    cond<-cond&((posvec[i,2]-posvec[outvec[outind],2])<=min_dist)
+    cond<-cond&cross[outvec[outind]]==cross[i]
+    #cat((posvec[i,2]-posvec[outvec[outind],2]), " ", cond, "\n")
+    if(cond){
+      
+      l1<-sum(data[outvec[outind],],na.rm=TRUE)
+      l2<-sum(data[i,],na.rm=TRUE)      
+      if(l2>l1){
+        outvec[outind]<-i
+        }
+      
+      }else{outvec<-c(outvec,i)}
+    
+    }
 
-	
-	for(i in which(cross=="D2.15")){
-		outind<-length(outvec)
-		cond<-posvec[outvec[outind],1]==posvec[i,1]
-		cond<-cond&((posvec[i,2]-posvec[outvec[outind],2])<=min_dist)
-		cond<-cond&cross[outvec[outind]]==cross[i]
-		#cat((posvec[i,2]-posvec[outvec[outind],2]), " ", cond, "\n")
-		if(cond){
-			
-			l1<-sum(data[outvec[outind],],na.rm=TRUE)
-			l2<-sum(data[i,],na.rm=TRUE)			
-			if(l2>l1){
-				outvec[outind]<-i
-				}
-			
-			}else{outvec<-c(outvec,i)}
-		
-		}
+  
+  for(i in which(cross=="D2.15")){
+    outind<-length(outvec)
+    cond<-posvec[outvec[outind],1]==posvec[i,1]
+    cond<-cond&((posvec[i,2]-posvec[outvec[outind],2])<=min_dist)
+    cond<-cond&cross[outvec[outind]]==cross[i]
+    #cat((posvec[i,2]-posvec[outvec[outind],2]), " ", cond, "\n")
+    if(cond){
+      
+      l1<-sum(data[outvec[outind],],na.rm=TRUE)
+      l2<-sum(data[i,],na.rm=TRUE)      
+      if(l2>l1){
+        outvec[outind]<-i
+        }
+      
+      }else{outvec<-c(outvec,i)}
+    
+    }
 
-	
-	for(i in which(cross=="B3.7")){
-		outind<-length(outvec)
-		cond<-posvec[outvec[outind],1]==posvec[i,1]
-		cond<-cond&((posvec[i,2]-posvec[outvec[outind],2])<=min_dist)
-		cond<-cond&cross[outvec[outind]]==cross[i]
-		#cat((posvec[i,2]-posvec[outvec[outind],2]), " ", cond, "\n")
-		if(cond){
-			
-			l1<-sum(data[outvec[outind],],na.rm=TRUE)
-			l2<-sum(data[i,],na.rm=TRUE)			
-			if(l2>l1){
-				outvec[outind]<-i
-				}
-			
-			}else{outvec<-c(outvec,i)}
-		
-		}
+  
+  for(i in which(cross=="B3.7")){
+    outind<-length(outvec)
+    cond<-posvec[outvec[outind],1]==posvec[i,1]
+    cond<-cond&((posvec[i,2]-posvec[outvec[outind],2])<=min_dist)
+    cond<-cond&cross[outvec[outind]]==cross[i]
+    #cat((posvec[i,2]-posvec[outvec[outind],2]), " ", cond, "\n")
+    if(cond){
+      
+      l1<-sum(data[outvec[outind],],na.rm=TRUE)
+      l2<-sum(data[i,],na.rm=TRUE)      
+      if(l2>l1){
+        outvec[outind]<-i
+        }
+      
+      }else{outvec<-c(outvec,i)}
+    
+    }
 
-	outvec<-outvec[order(outvec)]
-	return(outvec)
-	
-	}
+  outvec<-outvec[order(outvec)]
+  return(outvec)
+  
+  }
 
 
 ##########################
 
 parents <- cbind(Male.ref,Male.alt,Female.ref,Female.alt)
 
-offspring <- allelecounts.10[,13:ncol(allelecounts.10)] #matrix of read counts for each individual barcode and each allele
+#identify columns containing offspring info
+ov <- sort(c(a1[grep("Offspring",snames)-9],a2[grep("Offspring",snames)-9]))
+onames <- names(ov)
+
+offspring <- allelecounts.10[,ov] #matrix of read counts for each individual barcode and each allele
 
 offspring.1<-filter_bylograt(offspring,2.6,-2.3) ## x = upper cutoff y = lower
 
-offspring.2<-filter_bycov_locus(offspring.1, 1400, 450)
+offspring.2<-filter_bycov_locus(offspring.1, 1500, 450)
 
 offspring.3<-filter_bycov_ind(offspring.2,upbo=40,lowbo=10)
 
